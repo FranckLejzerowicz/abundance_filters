@@ -60,7 +60,7 @@ def abundance_filters():
 
     # prepare output file names
     if args.has_key('o'):
-        filout = args['o'][0]
+        filout = args['o']
     else:
         filout = filin.rstrip('txt') + 't%s_%s' % (thresh, meth)
         if args['x']:
@@ -71,11 +71,11 @@ def abundance_filters():
             filout += '_only'
         if select:
             filout += '_select'
+        filout += '.txt'
     # - stats output
-    statout = filout + '.stats'
-    Rout = filout + '.R'
+    statout = filout.replace('.txt', '.stats')
+    Rout = filout.replace('.txt', '.R')
     # - table output
-    filout += '.txt'
 
     # dict with indices and regex info for subsample selection
     regex = get_samples_indices(args['x'])
