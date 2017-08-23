@@ -73,8 +73,8 @@ def abundance_filters():
             filout += '_select'
         filout += '.txt'
     # - stats output
-    statout = filout.replace('.txt', '.stats')
-    Rout = filout.replace('.txt', '.R')
+    statout = filout[:filout.rindex('.')] + '.stats'
+    Rout = filout[:filout.rindex('.')] + '.R'
     # - table output
 
     # dict with indices and regex info for subsample selection
