@@ -62,17 +62,15 @@ def abundance_filters():
     if args.has_key('o'):
         filout = args['o'][0]
     else:
-        filout = filin.rstrip('txt') + 't%s.%s' % (thresh, meth)
-        if mode:
-            filout += '.%s' % '.'.join(map(str, [x for x in mode if os.path.isfile(x)==False]))
+        filout = filin.rstrip('txt') + 't%s_%s' % (thresh, meth)
         if args['x']:
-            filout += '.regex-%s' % '-'.join(args['x'])
+            filout += '_regex-%s' % '-'.join(args['x'])
         if across:
-            filout += '.sum'
+            filout += '_sum'
         if only:
-            filout += '.only'
+            filout += '_only'
         if select:
-            filout += '.select'
+            filout += '_select'
     # - stats output
     statout = filout + '.stats'
     Rout = filout + '.R'
