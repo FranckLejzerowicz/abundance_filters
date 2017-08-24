@@ -73,7 +73,7 @@ def abundance_filters():
             filout += '_select'
         filout += '.txt'
     # - stats output
-    statout = filout[:filout.rindex('.')] + '.stats'
+    statout = filout[:filout.rindex('.')] + '_stats.tsv'
     Rout = filout[:filout.rindex('.')] + '.R'
     # - table output
 
