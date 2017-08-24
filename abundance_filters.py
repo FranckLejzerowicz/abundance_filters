@@ -41,7 +41,6 @@ def abundance_filters():
     parser.add_argument('-sep', nargs = '?', default = '\t', help = 'Fields separator for the input table (default = tabulation).')
     parse=parser.parse_args()
     args=vars(parse)
-    print args
 
     # parse arguments
     filin = args['i']
@@ -496,11 +495,12 @@ def filt_presence(splt, samples, thresh, arguments):
     - the sum of a minimum number of samples
     """
     percent = arguments[0]
+    only = arguments[1]
     intSplt = get_intSplt(splt)
     reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, percent)
     # transform entry abundance in binary presence/absence
     nSup = sum([1 for x in reg_intSplt if x])
-    filt = get_filt(nSup, minSamples-1, False, intSplt, reg_idx, thresh)
+    filt = get_filt(nSup, minSamples-1, only, intSplt, reg_idx, thresh)
     return filt
 
 def filt_minimum(splt, samples, thresh, arguments):
@@ -650,7 +650,7 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples,
                 if val in range(1, 101):
                     if meth == 'presence':
                         # filtering function and its arguments: percent value of the samples
-                        filtering = [filt_presence, val]
+                        filtering = [filt_presence, val, only]
                     else:
                         # filtering function and its arguments: percent value of the samples; across dataset; only on samples not the entire OTU
                         filtering = [filt_minimum, val, across, only]
