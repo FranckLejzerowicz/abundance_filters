@@ -26,7 +26,7 @@ def abundance_filters():
     Filtering on a per-sample basis, or on a across-dataset basis (see option --sum).
     """
     parser=argparse.ArgumentParser(formatter_class = RawTextHelpFormatter)
-    parser.add_argument('-i', nargs = 1, required = True, help = 'Input OTU/ISU table name (required)')
+    parser.add_argument('-i', nargs = '?', required = True, help = 'Input OTU/ISU table name (required)')
     parser.add_argument('-o', nargs = '?', default = argparse.SUPPRESS, help = "Output OTU/ISU table name (default = add arguments extensions to input name, and '.stats' for stats file)")
     parser.add_argument('-t', nargs = '?', type = int, default = 10, help = 'Abundance threshold, inclusive (default = 10)')
     parser.add_argument('-x', nargs = '*', default = [], help = 'Samples to apply filter on and to output, using:\n    * indices numbers (from 1 to number of samples)\n    * regex for sample(s) names)')
@@ -41,9 +41,10 @@ def abundance_filters():
     parser.add_argument('-sep', nargs = '?', default = '\t', help = 'Fields separator for the input table (default = tabulation).')
     parse=parser.parse_args()
     args=vars(parse)
+    print args
 
     # parse arguments
-    filin = args['i'][0]
+    filin = args['i']
     thresh = args['t']
     meth = args['meth']
     mode = args['mode']
@@ -71,7 +72,7 @@ def abundance_filters():
             filout += '_only'
         if select:
             filout += '_select'
-        filout += '.txt'
+        filout += '.tsv'
     # - stats output
     statout = filout[:filout.rindex('.')] + '_stats.tsv'
     Rout = filout[:filout.rindex('.')] + '.R'
@@ -195,6 +196,7 @@ def write_stats(args, statout, filout, samples, all_samples, filtered, tableCode
                 print sample_idx, sample
                 print 'filtered'
                 print filtered
+                print sdkljn
             cur_removed = [x[1][0][sample_idx] for x in filtered]
             kept = [otu for otudx, otu in enumerate(cur_kept) if otu]
             removed = [otu for otudx, otu in enumerate(cur_removed) if cur_removed[otudx]]
@@ -269,14 +271,7 @@ def filt_replicates(splt, samples, thresh, arguments):
     - a minimum number of replicates per group of replicates
     - a minimum number of groups of replcaites
     """
-    try:
-        intSplt = map(int, splt)
-    except ValueError:
-        try:
-            intSplt = map(float, splt)
-        except ValueError:
-            print 'Table contain non-numeric values\nExiting'
-            sys.exit()
+    intSplt = get_intSplt(splt)
     filt = {0: [], 1: []}
     # get arguments
     repsList = arguments[0]
@@ -433,6 +428,33 @@ def get_replicates(filin, code, samples, table):
     else:
         return reps
 
+def get_filt(n1, n2, only, intSplt, reg_idx, thresh):
+    filt = {0: [], 1: []}
+    nLine = len(intSplt)
+    if n1 > n2:
+        # treat each sample separately
+        if only:
+            for vdx, val in enumerate(intSplt):
+                if vdx in reg_idx:
+                    if val > thresh:
+                        filt[1].append(val)
+                        filt[0].append(0)
+                    else:
+                        filt[0].append(val)
+                        filt[1].append(0)
+                else:
+                    filt[1].append(val)
+                    filt[0].append(0)
+        # if '--only' option not activated: keep all samples counts
+        else:
+            filt[1] = intSplt
+            filt[0] = [0]*nLine
+    else:
+        filt[0] = intSplt
+        filt[1] = [0]*nLine
+    return filt
+
+
 def filt_choice(splt, samples, thresh, arguments):
     """
     Return the filtered version of the input OTU/ISU line
@@ -441,20 +463,13 @@ def filt_choice(splt, samples, thresh, arguments):
     - potentially, a minimum number of these samples
     - the sum of these selected samples
     """
-    try:
-        intSplt = map(int, splt)
-    except ValueError:
-        try:
-            intSplt = map(float, splt)
-        except ValueError:
-            print 'Table contain non-numeric values\nExiting'
-            sys.exit()
+    intSplt = get_intSplt(splt)
     # subsamples selection
     subsamples = arguments[0]
     # numbers on samples info (default to 100)
     percent = arguments[1]
     across = arguments[2]
-    only = arguments[-1]
+    only = arguments[3]
     filt = {0: [], 1: []}
     # if '--sum' option activated
     if across:
@@ -524,6 +539,12 @@ def filt_choice(splt, samples, thresh, arguments):
     filt[2] = subsamples
     return filt
 
+def get_sample_info(intSplt, samples, percent=100):
+    reg_idx = [s[0] for s in samples]
+    reg_intSplt = [intSplt[x] for x in reg_idx]
+    minSamples = len(samples) * (percent / 100.)
+    return reg_idx, reg_intSplt, minSamples
+
 def filt_presence(splt, samples, thresh, arguments):
     """
     Return the filtered version of the input OTU/ISU line
@@ -531,27 +552,11 @@ def filt_presence(splt, samples, thresh, arguments):
     - a minimum number of samples
     - the sum of a minimum number of samples
     """
-    try:
-        intSplt = map(int, splt)
-    except ValueError:
-        try:
-            intSplt = map(float, splt)
-        except ValueError:
-            print 'Table contain non-numeric values\nExiting'
-            sys.exit()
-    # numbers of samples to use as minimum for presence
-    nSamples = len(samples)
-    minSamples = nSamples * (arguments[0] / 100.)
-    filt = {0: [], 1: []}
+    intSplt = get_intSplt(splt)
+    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, arguments[0])
     # transform entry abundance in binary presence/absence
-    nSup = sum([1 for x in intSplt if x])
-    # check if the entry is present in enough samples
-    if nSup >= minSamples:
-        filt[1] = intSplt
-        filt[0] = [0]*nSamples
-    else:
-        filt[0] = intSplt
-        filt[1] = [0]*nSamples
+    nSup = sum([1 for x in reg_intSplt if x])
+    filt = get_filt(nSup, minSamples-1, only, intSplt, reg_idx, thresh)
     return filt
 
 def filt_minimum(splt, samples, thresh, arguments):
@@ -561,64 +566,22 @@ def filt_minimum(splt, samples, thresh, arguments):
     - a minimum number of samples
     - the sum of a minimum number of samples
     """
-    try:
-        intSplt = map(int, splt)
-    except ValueError:
-        try:
-            intSplt = map(float, splt)
-        except ValueError:
-            print 'Table contain non-numeric values\nExiting'
-            sys.exit()
-    # parse arguments
-    percent = arguments[0]
+    intSplt = get_intSplt(splt)
     across = arguments[1]
     only = arguments[2]
-    # numbers on samples info
-    nSamples = len(samples)
-    minSamples = nSamples * (percent / 100.)
-    filt = {0: [], 1: []}
+    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, arguments[0])
     # if '--sum' option activated
     if across:
         # calculate the sum based on "nSamples" first highest numbers 
-        if only:
-            sum_max_half = sum(sorted([intSplt[x[0]] for x in samples])[:nSamples])
-        else:
-            sum_max_half = sum(sorted(intSplt)[::-1][:nSamples])
-        if sum_max_half > thresh:
-            filt[1] = intSplt
-            filt[0] = [0]*nSamples
-        else:
-            filt[0] = intSplt
-            filt[1] = [0]*nSamples
+        sum_max_half = sum(sorted(reg_intSplt)[::-1][:len(samples)])
+        filt = get_filt(sum_max_half, thresh, only, intSplt, reg_idx, thresh)
     # if '--sum' option not activated
     else:
         # numbers above the threshold
-        if only:
-            n_samples_above_thresh = [x for x in [intSplt[x[0]] for s in samples] if x > thresh]
-        else:
-            n_samples_above_thresh = [x for x in intSplt if x > thresh]
+        n_samples_above_thresh = [x for x in reg_intSplt if x > thresh]
         # number of numbers above the thresholds
         sum_max_half_thresh = len(n_samples_above_thresh)
-        if sum_max_half_thresh >= minSamples:
-            # if '--only' option activated: the filter should apply only the selected samples
-            #if only:
-            #    # treat each sample separately
-            #    for val in intSplt:
-            #        if val > thresh:
-            #            filt[1].append(val)
-            #            filt[0].append(0)
-            #        else:
-            #            filt[0].append(val)
-            #            filt[1].append(0)
-            # if '--only' option not activated: keep all samples counts
-            #else:
-            #    filt[1] = intSplt
-            #    filt[0] = [0]*nSamples
-            filt[1] = intSplt
-            filt[0] = [0]*nSamples
-        else:
-            filt[0] = intSplt
-            filt[1] = [0]*nSamples
+        filt = get_filt(sum_max_half_thresh, minSamples-1, only, intSplt, reg_idx, thresh)
     return filt
 
 def filt_dataset(splt, samples, thresh, arguments):
@@ -626,6 +589,25 @@ def filt_dataset(splt, samples, thresh, arguments):
     Return the filtered version of the input OTU/ISU line
     Method: across the entire dataset
     """
+    intSplt = get_intSplt(splt)
+    only = arguments[0]
+    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples)
+    # calculate the sum on the subsamples only
+    spltSum = sum(reg_intSplt)
+    filt = get_filt(spltSum, thresh, only, intSplt, reg_idx, thresh)
+    return filt
+
+def filt_sample(splt, samples, thresh, arguments):
+    """
+    Return the filtered version of the input OTU/ISU line
+    Method: for each sample separately
+    """
+    intSplt = get_intSplt(splt)
+    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples)
+    filt = get_filt(1, 0, True, intSplt, reg_idx, thresh)
+    return filt
+
+def get_intSplt(splt):
     try:
         intSplt = map(int, splt)
     except ValueError:
@@ -634,44 +616,7 @@ def filt_dataset(splt, samples, thresh, arguments):
         except ValueError:
             print 'Table contain non-numeric values\nExiting'
             sys.exit()
-    filt = {}
-    select = arguments[0]
-    # if the filter should apply only on the subsamples selection
-    if select:
-        # calculate the sum on the subsamples only
-        spltSum = sum([intSplt[x[0]] for x in samples])
-    else:
-        spltSum = sum(intSplt)
-    if spltSum > thresh:
-        filt[1] = intSplt
-        filt[0] = [0]*len(splt)
-    else:
-        filt[0] = intSplt
-        filt[1] = [0]*len(splt)
-    return filt
-
-def filt_sample(splt, samples, thresh, arguments):
-    """
-    Return the filtered version of the input OTU/ISU line
-    Method: for each sample separately
-    """
-    filt = {0: [], 1: []}
-    for i in splt:
-        try:
-            val = int(i)
-        except ValueError:
-            try:
-                val = float(i)
-            except ValueError:
-                print 'Table contain non-numeric values\nExiting'
-                sys.exit()
-        if val > thresh:
-            filt[1].append(val)
-            filt[0].append(0)
-        else:
-            filt[0].append(val)
-            filt[1].append(0)
-    return filt
+    return intSplt
 
 def get_subsamples(samples, regex_indices):
     """
@@ -735,7 +680,7 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples,
     if meth == 'simple':
         if across:
             # across-dataset filtering / may apply on a set of selected samples
-            filtering = [filt_dataset, select]
+            filtering = [filt_dataset, only]
         else:
             # per-sample filtering / no argument
             filtering = [filt_sample]
