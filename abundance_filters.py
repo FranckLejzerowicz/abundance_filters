@@ -500,7 +500,7 @@ def filt_presence(splt, samples, thresh, arguments):
     reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, percent)
     # transform entry abundance in binary presence/absence
     nSup = sum([1 for x in reg_intSplt if x])
-    filt = get_filt(nSup, minSamples-1, only, intSplt, reg_idx, thresh)
+    filt = get_filt(nSup, minSamples-1, False, intSplt, reg_idx, thresh)
     return filt
 
 def filt_minimum(splt, samples, thresh, arguments):
