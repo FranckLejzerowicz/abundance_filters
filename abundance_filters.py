@@ -264,6 +264,32 @@ def replicatesFigure(Rout, repData, samples):
     R.close()
     subprocess.call(['R', '-f', Rout, '--vanilla', '--slave'])
 
+def get_filt(n1, n2, only, intSplt, reg_idx, thresh):
+    filt = {0: [], 1: []}
+    nLine = len(intSplt)
+    if n1 > n2:
+        # treat each sample separately
+        if only:
+            for vdx, val in enumerate(intSplt):
+                if vdx in reg_idx:
+                    if val > thresh:
+                        filt[1].append(val)
+                        filt[0].append(0)
+                    else:
+                        filt[0].append(val)
+                        filt[1].append(0)
+                else:
+                    filt[1].append(val)
+                    filt[0].append(0)
+        # if '--only' option not activated: keep all samples counts
+        else:
+            filt[1] = intSplt
+            filt[0] = [0]*nLine
+    else:
+        filt[0] = intSplt
+        filt[1] = [0]*nLine
+    return filt
+
 def filt_replicates(splt, samples, thresh, arguments):
     """
     Return the filtered version of the input OTU/ISU line
@@ -428,33 +454,6 @@ def get_replicates(filin, code, samples, table):
     else:
         return reps
 
-def get_filt(n1, n2, only, intSplt, reg_idx, thresh):
-    filt = {0: [], 1: []}
-    nLine = len(intSplt)
-    if n1 > n2:
-        # treat each sample separately
-        if only:
-            for vdx, val in enumerate(intSplt):
-                if vdx in reg_idx:
-                    if val > thresh:
-                        filt[1].append(val)
-                        filt[0].append(0)
-                    else:
-                        filt[0].append(val)
-                        filt[1].append(0)
-                else:
-                    filt[1].append(val)
-                    filt[0].append(0)
-        # if '--only' option not activated: keep all samples counts
-        else:
-            filt[1] = intSplt
-            filt[0] = [0]*nLine
-    else:
-        filt[0] = intSplt
-        filt[1] = [0]*nLine
-    return filt
-
-
 def filt_choice(splt, samples, thresh, arguments):
     """
     Return the filtered version of the input OTU/ISU line
@@ -470,80 +469,24 @@ def filt_choice(splt, samples, thresh, arguments):
     percent = arguments[1]
     across = arguments[2]
     only = arguments[3]
-    filt = {0: [], 1: []}
+    choice_idx, choice_intSplt, minSamples = get_sample_info(intSplt, subsamples, percent)
     # if '--sum' option activated
     if across:
-        # abundances in all selected samples
-        samples_vals = [intSplt[x[0]] for x in subsamples]
         # sum of abundances in all selected samples
-        sum_samples_vals = sum(samples_vals)
+        sum_choice_intSplt = sum(choice_intSplt)
         # check if this sum if above the threshold
-        if sum_samples_vals > thresh:
-            filt[1] = intSplt
-            filt[0] = [0]*len(intSplt)
-        else:
-            filt[0] = intSplt
-            filt[1] = [0]*len(intSplt)
+        filt = get_filt(choice_intSplt, thresh, only, intSplt, choice_idx, thresh)
     # if '--sum' option not activated
     else:
-        # samples names that have an abundance above the threshold
-        samples_vals_above_thresh = [x[1] for x in subsamples if intSplt[x[0]] > thresh]
         # abundances of the subsamples that are above the threshold
-        vals_above_thresh = [intSplt[x[0]] for x in subsamples if intSplt[x[0]] > thresh]
+        choice_vals_above_thresh = [x for x in choice_intSplt if x > thresh]
         # number of subsamples that have an abundance above the threshold
-        n_samples_vals_above_thresh = len(samples_vals_above_thresh)
-        # convert percent of subsamples in number of subsamples
-        minSamples = len(subsamples) * (percent/100.)
+        n_vals_above_thresh = len(choice_vals_above_thresh)
         # if number of subsamples that have an abundance above the threshold is above the number of subsamples threshold
-        if n_samples_vals_above_thresh >= minSamples:
-            # if '--only' option activated: the filter should apply only the selected samples
-            if only:
-                # treat each sample separately
-                # remove counts in samples not in the selected subsamples
-                for sam in samples:
-                    samdx = sam[0]
-                    samval = intSplt[samdx]
-                    if sam in subsamples:
-                        if samval > thresh:
-                            filt[1].append(val)
-                            filt[0].append(0)
-                        else:
-                            filt[0].append(val)
-                            filt[1].append(0)
-                    else:
-                        filt[0].append(val)
-                        filt[1].append(0)
-            # if '--only' option not activated: keep all samples counts
-            else:
-                filt[1] = intSplt
-                filt[0] = [0]*len(intSplt)
-        # if number of subsamples that have an abundance above the threshold is not above the number of subsamples threshold
-        else:
-            # if '--only' option activated: the filter should apply only the selected samples
-            if only:
-                # treat each sample separately
-                for sam in samples:
-                    samdx = sam[0]
-                    samval = intSplt[samdx]
-                    if sam in subsamples:
-                        filt[0].append(samval)
-                        filt[1].append(0)
-                    else:
-                        filt[1].append(samval)
-                        filt[0].append(0)
-            # if '--only' option not activated: keep all samples counts
-            else:
-                filt[0] = intSplt
-                filt[1] = [0]*len(intSplt)
+        filt = get_filt(n_vals_above_thresh, minSamples-1, only, intSplt, reg_idx, thresh)
     # for this filter also return the subsamples under a new key
     filt[2] = subsamples
     return filt
-
-def get_sample_info(intSplt, samples, percent=100):
-    reg_idx = [s[0] for s in samples]
-    reg_intSplt = [intSplt[x] for x in reg_idx]
-    minSamples = len(samples) * (percent / 100.)
-    return reg_idx, reg_intSplt, minSamples
 
 def filt_presence(splt, samples, thresh, arguments):
     """
@@ -552,8 +495,9 @@ def filt_presence(splt, samples, thresh, arguments):
     - a minimum number of samples
     - the sum of a minimum number of samples
     """
+    percent = arguments[0]
     intSplt = get_intSplt(splt)
-    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, arguments[0])
+    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, percent)
     # transform entry abundance in binary presence/absence
     nSup = sum([1 for x in reg_intSplt if x])
     filt = get_filt(nSup, minSamples-1, only, intSplt, reg_idx, thresh)
@@ -567,9 +511,10 @@ def filt_minimum(splt, samples, thresh, arguments):
     - the sum of a minimum number of samples
     """
     intSplt = get_intSplt(splt)
+    percent = arguments[0]
     across = arguments[1]
     only = arguments[2]
-    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, arguments[0])
+    reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples, percent)
     # if '--sum' option activated
     if across:
         # calculate the sum based on "nSamples" first highest numbers 
@@ -617,6 +562,12 @@ def get_intSplt(splt):
             print 'Table contain non-numeric values\nExiting'
             sys.exit()
     return intSplt
+
+def get_sample_info(intSplt, samples, percent=100):
+    reg_idx = [s[0] for s in samples]
+    reg_intSplt = [intSplt[x] for x in reg_idx]
+    minSamples = len(samples) * (percent / 100.)
+    return reg_idx, reg_intSplt, minSamples
 
 def get_subsamples(samples, regex_indices):
     """
