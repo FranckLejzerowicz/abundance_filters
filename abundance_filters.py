@@ -188,7 +188,13 @@ def write_stats(args, statout, filout, samples, all_samples, filtered, tableCode
             kept = [otu for otudx, otu in enumerate(cur_kept) if otu]
             removed = [otu for otudx, otu in enumerate(cur_removed) if cur_removed[otudx]]
         else:
-            cur_kept = [x[1][1][sample_idx] for x in filtered]
+            try:
+                cur_kept = [x[1][1][sample_idx] for x in filtered]
+            except IndexError:
+                print
+                print sample_idx, sample
+                print 'filtered'
+                print filtered
             cur_removed = [x[1][0][sample_idx] for x in filtered]
             kept = [otu for otudx, otu in enumerate(cur_kept) if otu]
             removed = [otu for otudx, otu in enumerate(cur_removed) if cur_removed[otudx]]
@@ -574,7 +580,10 @@ def filt_minimum(splt, samples, thresh, arguments):
     # if '--sum' option activated
     if across:
         # calculate the sum based on "nSamples" first highest numbers 
-        sum_max_half = sum(sorted(intSplt)[::-1][:nSamples])
+        if only:
+            sum_max_half = sum(sorted([intSplt[x[0]] for x in samples])[:nSamples])
+        else:
+            sum_max_half = sum(sorted(intSplt)[::-1][:nSamples])
         if sum_max_half > thresh:
             filt[1] = intSplt
             filt[0] = [0]*nSamples
@@ -584,24 +593,29 @@ def filt_minimum(splt, samples, thresh, arguments):
     # if '--sum' option not activated
     else:
         # numbers above the threshold
-        n_samples_above_thresh = [x for x in intSplt if x > thresh]
+        if only:
+            n_samples_above_thresh = [x for x in [intSplt[x[0]] for s in samples] if x > thresh]
+        else:
+            n_samples_above_thresh = [x for x in intSplt if x > thresh]
         # number of numbers above the thresholds
         sum_max_half_thresh = len(n_samples_above_thresh)
         if sum_max_half_thresh >= minSamples:
             # if '--only' option activated: the filter should apply only the selected samples
-            if only:
-                # treat each sample separately
-                for val in intSplt:
-                    if val > thresh:
-                        filt[1].append(val)
-                        filt[0].append(0)
-                    else:
-                        filt[0].append(val)
-                        filt[1].append(0)
+            #if only:
+            #    # treat each sample separately
+            #    for val in intSplt:
+            #        if val > thresh:
+            #            filt[1].append(val)
+            #            filt[0].append(0)
+            #        else:
+            #            filt[0].append(val)
+            #            filt[1].append(0)
             # if '--only' option not activated: keep all samples counts
-            else:
-                filt[1] = intSplt
-                filt[0] = [0]*nSamples
+            #else:
+            #    filt[1] = intSplt
+            #    filt[0] = [0]*nSamples
+            filt[1] = intSplt
+            filt[0] = [0]*nSamples
         else:
             filt[0] = intSplt
             filt[1] = [0]*nSamples
