@@ -489,7 +489,7 @@ def filt_choice(splt, samples, thresh, arguments):
         # number of subsamples that have an abundance above the threshold
         n_vals_above_thresh = len(choice_vals_above_thresh)
         # if number of subsamples that have an abundance above the threshold is above the number of subsamples threshold
-        filt = get_filt(n_vals_above_thresh, minSamples-1, only, intSplt, reg_idx, thresh)
+        filt = get_filt(n_vals_above_thresh, minSamples-1, only, intSplt, choice_idx, thresh)
     # for this filter also return the subsamples under a new key
     filt[2] = subsamples
     return filt
