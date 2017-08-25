@@ -88,14 +88,8 @@ def abundance_filters():
     regex = get_samples_indices(args['x'])
 
     # Warn if filtering method inconsistencies
-    if meth == 'presence':
-        if across or only:
-            print "Options '-meth presence' not compatible with:"
-            if across:
-                print "'--sum' (Impossible to sum presences to an abundance threshold value)."
-            if only:
-                print "'--only' (Inpossible to compare presence with abundance threshold value. Corresponds to using '-meth minimum')."
-            print "Using '-meth presence' alone..."
+    if meth == 'presence' and across:
+        print "Warning: options '-meth presence' and '--sum' not compatible with (Impossible to sum presences to an abundance threshold value)"
 
     # main
     tableCode = check_table(filin, sep, head, meta)
