@@ -94,15 +94,17 @@ def abundance_filters():
     # main
     tableCode = check_table(filin, sep, head, meta)
     all_samples, samples = get_samples(filin, tableCode, sep, regex)
-    meth_mode = get_method(meth, mode, across, only, tableCode, filin, samples, all_samples, select)
+    meth_mode, samples = get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
     filtered, repData = filter_table(filin, tableCode, sep, regex, meth_mode, thresh, samples)
-    if meth_mode[0] == filt_replicates:
-        replicatesFigure(Rout, repData, samples)
     write_output(filout, samples, all_samples, filtered, name_otus, select)
     write_stats(args, statout, filout, samples, all_samples, filtered, tableCode, select)
     print 'Outputs:'
     print os.path.abspath(filout)
     print os.path.abspath(statout)
+    if meth_mode[0] == filt_replicates:
+        pdf = replicatesFigure(Rout, repData, samples)
+        print os.path.abspath(Rout)
+        print os.path.abspath(pdf)
     return 0
 
 def write_output(filout, samples, all_samples, filtered, name_otus, select):
@@ -241,7 +243,8 @@ def replicatesFigure(Rout, repData, samples):
     Number of OTUs per number of groups of sample replicates and per class of number of replcates in these groups
     """
     R = open(Rout, 'w')
-    R.write('pdf("%s.pdf", height=5, width=14)\n' % '.'.join(Rout.split('.')[:-1]))
+    pdf = '%s.pdf' % '.'.join(Rout.split('.')[:-1])
+    R.write('pdf("%s", height=5, width=14)\n' % pdf)
     R.write('par(mar = c(5,7,7,2), xpd = NA)\n')
     R.write('layout(matrix(c(1,2, 3), 1, 3), widths=c(1,1,0.33))\n')
     maxRep = len(repData['Exact'].keys())
@@ -263,6 +266,7 @@ def replicatesFigure(Rout, repData, samples):
     #R.write('dev.off()\n')
     R.close()
     subprocess.call(['R', '-f', Rout, '--vanilla', '--slave'])
+    return pdf
 
 def get_filt(n1, n2, only, intSplt, reg_idx, thresh):
     filt = {0: [], 1: []}
@@ -585,15 +589,16 @@ def get_subsamples(samples, regex_indices):
         if '-' in regex_index:
             # check if all hyphen-separated fields are integers and collect them
             for ind in regex_index.split('-'):
-                try:
-                    val = int(ind)
-                    if val not in vals:
-                        vals.append(val)
-                # if one is not an integer: empty the integer list and skip to next input
-                except ValueError:
-                    regex.append(regex_index)
-                    vals = []
-                    break
+                if ind:
+                    try:
+                        val = int(ind)
+                        if val not in vals:
+                            vals.append(val)
+                    # if one is not an integer: empty the integer list and skip to next input
+                    except ValueError:
+                        regex.append(regex_index)
+                        vals = []
+                        break
         # if no hyphen: interpret as a regex
         else:
             regex.append(regex_index)
@@ -622,7 +627,7 @@ def get_subsamples(samples, regex_indices):
             print "*** Warning: no sample detected using regex: '%s' (ignored):" % "', '".join(sorted(list(set(detect)^set(regex))))
     return subsamples
 
-def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples, select):
+def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples):
     """
     Define the filtering function to use based on user inputs by checking interactions of passed options
     Note that the abundance threshol argument always applies - see specific filtering functions
@@ -687,9 +692,9 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples,
             except ValueError:
                 print "Warning: mode value %s for method 'choice' not a numeric: interpreted as indices/regex" % mode[-1]
         # get the chosen subsamples based on indices/regex
-        subsamples = get_subsamples(samples, mode)
+        samples = get_subsamples(samples, mode)
         # filtering function and its arguments: subsamples, percent value of the subsamples; across subsamples; only on samples not the entire OTU
-        filtering = [filt_choice, subsamples, val, across, only]
+        filtering = [filt_choice, samples, val, across, only]
     # replicates-based filtering
     elif meth == 'replicates':
         # necessitates at least one mode argument: the indices/regex for samples selection
@@ -760,7 +765,7 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples,
         else:
             print "Need file containing replicates information to run method 'replicates'"
             sys.exit()
-    return filtering
+    return filtering, samples
 
 def get_samples(filin, code, sep, regex):
     """
