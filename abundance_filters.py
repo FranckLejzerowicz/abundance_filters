@@ -31,7 +31,7 @@ def abundance_filters():
     parser.add_argument('-t', nargs = '?', type = int, default = 10, help = 'Abundance threshold, inclusive (default = 10)')
     parser.add_argument('-x', nargs = '*', default = [], help = 'Samples to apply filter on and to output, using:\n    * indices numbers (from 1 to number of samples)\n    * regex for sample(s) names)')
     parser.add_argument('-meth', nargs = '?', default = 'simple', choices = ['simple', 'minimum', 'presence', 'choice', 'replicates'], help = "Filtering method: [default = 'simple']\n    * 'simple': filter OTUs/ISUs not abundant enough\n    * 'minimum': filter OTU/ISU not abundant enough in a percent of samples. Use with '-mode' [default = 10]\n    * 'presence': filter OTUs/ISUs not present in a min percent of samples. Use with '-mode' [default = 10]\n    * 'choice': define groups of samples where OTUs/ISUs must be abundant enough. Use with -mode\n    * 'replicates': use groups of samples among which OTUs/ISUs must be abundant enough. Use with -mode)\n    [EACH METHOD CAN OPERATE PER SAMPLE OR ACROSS THE ENTIRE DATASET, USING '--sum']")
-    parser.add_argument('-mode', nargs = '*', default = [], help = "Filtering mode, for '-meth':\n    * 'minimum': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that do not reach threshold in the percent of samples)\n\te.g. '-meth minimum -mode 50' = OTU/ISU must be abundant enough in at least half of the samples\n    * 'presence': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that is not present in the percent of samples)\n\te.g. '-meth presence -mode 50' = OTU/ISU must be present in at least half of the samples\n   (** Both '-meth choice' and '-meth replicates' could be combined with a minimum percent of these samples [default = 100])\n    * 'choice':\n\t- one (or more) space-separated regex to select by sample name\n\t- at least 2 hyphen-separated integers to select by sample indices (starts at 1)\n\t- both regex and indices\n\t[See '--select' for output]\n\te.g. '-meth choice -mode gut_.*_100ppm 30' = OTU/ISU must be abundant enough in 30 %s of the regex-matching samples\n    * 'replicates': file with tab-/comma-separated replicates samples names in rows\n\tOptional integers for:\n\t- number of replicate occurrences per group of sample replicates [default = 2]\n\t- number of occurrences in terms of groups of samples replicates (or percent if float between 0 and 1) [default = ]\n\te.g. '-meth replicates -mode <repFile.txt> 3 10' = OTU/ISU must be abundant enough in >=3 replicates of >= 10 groups of replicates\n   ['minimum', 'choice' and 'replicates': see option '--only' to apply OTU filtering in selected samples only]" % '%'.replace(r"%", r"%%"))
+    parser.add_argument('-mode', nargs = '*', default = [], help = "Filtering mode, for '-meth':\n    * 'minimum': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that do not reach threshold in the percent of samples)\n\te.g. '-meth minimum -mode 50' = OTU/ISU must be abundant enough in at least half of the samples\n    * 'presence': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that is not present in the percent of samples)\n\te.g. '-meth presence -mode 50' = OTU/ISU must be present in at least half of the samples\n   (** Both '-meth choice' and '-meth replicates' could be combined with a minimum percent of these samples [default = 100])\n    * 'choice':\n\t- one (or more) space-separated regex to select by sample name\n\t- at least 2 hyphen-separated integers to select by sample indices (starts at 1)\n\t- both regex and indices\n\t[See '--select' for output]\n\te.g. '-meth choice -mode gut_.*_100ppm 30' = OTU/ISU must be abundant enough in 30 %s of the regex-matching samples\n    * 'replicates': file with tab-/comma-separated replicates samples names in rows\n\tOptional integers for:\n\t- number of replicate occurrences per group of sample replicates [default = 2]\n\t- number of occurrences in terms of groups of samples replicates (or percent if float between 0 and 1) [default = 1]\n\te.g. '-meth replicates -mode <repFile.txt> 3 10' = OTU/ISU must be abundant enough in >=3 replicates of >= 10 groups of replicates\n   ['minimum', 'choice' and 'replicates': see option '--only' to apply OTU filtering in selected samples only]" % '%'.replace(r"%", r"%%"))
     parser.add_argument('--sum', action = 'store_true', default = False, help = 'Compare to the threshold the SUM of the abundances in all the samples to be filtered.\n(default = not activated = filter per sample)')
     parser.add_argument('--only', action = 'store_true', default = False, help = "Remove ISUs/OTUs only in the samples where they do not reach the abundance threshold.\nAutomatic with '-meth sample' / Manual for methods 'minimum', 'choice' and 'replicates'.\n(default = remove OTU in all samples, or in all replicates of a group of replicates for method 'replicates').")
     parser.add_argument('--selection', action = 'store_true', default = False, help = "Return filtered data table containing only the samples selected using '-meth choice'.")
@@ -63,6 +63,13 @@ def abundance_filters():
         filout = args['o']
     else:
         filout = filin.rstrip('txt') + 't%s_%s' % (thresh, meth)
+        if meth == 'replicates':
+            if len(mode) == 3:
+                filout += '%sreps_%sgrps' % (mode[1], mode[2])
+            if len(mode) == 2:
+                filout += '2reps_%sgrps' % (mode[1])
+            else:
+                filout += '2reps_1grps' % (mode[1], mode[2])
         if args['x']:
             filout += '_regex-%s' % '-'.join(args['x'])
         if across:
@@ -714,6 +721,21 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples,
             # parse the other arguments
             for mdx, mod in enumerate(mode[1:]):
                 if mdx:
+                    # check if the nReps input argument
+                    try:
+                        # is an integer
+                        nReps = int(mod)
+                        # update max number of replicates in a group of replicates
+                        if nReps > maxReps:
+                            nReps = maxReps
+                        # keep it to 2 minimum
+                        if nReps == 1:
+                            print 'Minimum number of replicates for filtering based on replicates is 2'
+                            nReps = 2
+                    except ValueError:
+                        print "Option error: method 'replicates' incompatible with input %s (not integer)\nExiting" % mod
+                        sys.exit()
+                else:
                     # check if the nGroups input argument
                     try:
                         # is an integer
@@ -729,21 +751,6 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples,
                     if nGroups > len(replicates):
                         nGroups = len(replicates)
                 # for the first argument
-                else:
-                    # check if the nReps input argument
-                    try:
-                        # is an integer
-                        nReps = int(mod)
-                        # update max number of replicates in a group of replicates
-                        if nReps > maxReps:
-                            nReps = maxReps
-                        # keep it to 2 minimum
-                        if nReps == 1:
-                            print 'Minimum number of replicates for filtering based on replicates is 2'
-                            nReps = 2
-                    except ValueError:
-                        print "Option error: method 'replicates' incompatible with input %s (not integer)\nExiting" % mod
-                        sys.exit()
             # prints
             if isinstance(nGroups, float):
                 print "Using %s as the number of replicates per sample, and %s as the percent of groups of sample replicates" % (nReps, nGroups)
