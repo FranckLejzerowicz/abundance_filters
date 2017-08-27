@@ -74,10 +74,11 @@ def abundance_filters():
             filout += '_regex-%s' % '-'.join(args['x'])
         if across:
             filout += '_sum'
-        if only:
-            filout += '_only'
-        if select:
-            filout += '_select'
+        if meth in ['choice', 'replicates']:
+            if only:
+                filout += '_only'
+            if select:
+                filout += '_select'
         filout += '.tsv'
     # - stats output
     statout = filout[:filout.rindex('.')] + '_stats.tsv'
