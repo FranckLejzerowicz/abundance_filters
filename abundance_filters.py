@@ -31,7 +31,7 @@ def abundance_filters():
     parser.add_argument('-t', nargs = '?', type = int, default = 10, help = 'Abundance threshold, inclusive (default = 10)')
     parser.add_argument('-x', nargs = '*', default = [], help = 'Samples to apply filter on and to output, using:\n    * indices numbers (from 1 to number of samples)\n    * regex for sample(s) names)')
     parser.add_argument('-meth', nargs = '?', default = 'simple', choices = ['simple', 'minimum', 'presence', 'choice', 'replicates'], help = "Filtering method: [default = 'simple']\n    * 'simple': filter OTUs/ISUs not abundant enough\n    * 'minimum': filter OTU/ISU not abundant enough in a percent of samples. Use with '-mode' [default = 10]\n    * 'presence': filter OTUs/ISUs not present in a min percent of samples. Use with '-mode' [default = 10]\n    * 'choice': define groups of samples where OTUs/ISUs must be abundant enough. Use with -mode\n    * 'replicates': use groups of samples among which OTUs/ISUs must be abundant enough. Use with -mode)\n    [EACH METHOD CAN OPERATE PER SAMPLE OR ACROSS THE ENTIRE DATASET, USING '--sum']")
-    parser.add_argument('-mode', nargs = '*', default = [], help = "Filtering mode, for '-meth':\n    * 'minimum': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that do not reach threshold in the percent of samples)\n\te.g. '-meth minimum -mode 50' = OTU/ISU must be abundant enough in at least half of the samples\n    * 'presence': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that is not present in the percent of samples)\n\te.g. '-meth presence -mode 50' = OTU/ISU must be present in at least half of the samples\n   (** Both '-meth choice' and '-meth replicates' could be combined with a minimum percent of these samples [default = 100])\n    * 'choice':\n\t- one (or more) space-separated regex to select by sample name\n\t- at least 2 hyphen-separated integers to select by sample indices (starts at 1)\n\t- both regex and indices\n\t[See '--select' for output]\n\te.g. '-meth choice -mode gut_.*_100ppm 30' = OTU/ISU must be abundant enough in 30 %s of the regex-matching samples\n    * 'replicates': file with tab-/comma-separated replicates samples names in rows\n\tOptional integers for:\n\t- number of replicate occurrences per group of sample replicates [default = 2]\n\t- number of occurrences in terms of groups of samples replicates (or percent if float between 0 and 1) [default = 1]\n\te.g. '-meth replicates -mode <repFile.txt> 3 10' = OTU/ISU must be abundant enough in >=3 replicates of >= 10 groups of replicates\n   ['minimum', 'choice' and 'replicates': see option '--only' to apply OTU filtering in selected samples only]" % '%'.replace(r"%", r"%%"))
+    parser.add_argument('-mode', nargs = '*', default = [], help = "Filtering mode, for '-meth':\n    * 'minimum': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that do not reach threshold in the percent of samples)\n\te.g. '-meth minimum -mode 50' = OTU/ISU must be abundant enough in at least half of the samples\n    * 'presence': percent of samples (integer between 1 and 100) [default = 10]\n\t(remove OTU/ISU that is not present in the percent of samples)\n\te.g. '-meth presence -mode 50' = OTU/ISU must be present in at least half of the samples\n   (** Both '-meth choice' and '-meth replicates' could be combined with a minimum percent of these samples [default = 100])\n    * 'choice':\n\t- one (or more) space-separated regex to select by sample name\n\t- at least 2 hyphen-separated integers to select by sample indices (starts at 1)\n\t- both regex and indices\n\t[See '--select' for output]\n\te.g. '-meth choice -mode gut_.*_100ppm 30' = OTU/ISU must be abundant enough in 30 %s of the regex-matching samples\n    * 'replicates': file with tab-/comma-separated replicates samples names in rows (first column could be the new 'sample' name)\n\tOptional integers for:\n\t- number of replicate occurrences per group of sample replicates [default = 2]\n\t- number of occurrences in terms of groups of samples replicates (or percent if float between 0 and 1) [default = 1]\n\te.g. '-meth replicates -mode <repFile.txt> 3 10' = OTU/ISU must be abundant enough in >=3 replicates of >= 10 groups of replicates\n   ['minimum', 'choice' and 'replicates': see option '--only' to apply OTU filtering in selected samples only]" % '%'.replace(r"%", r"%%"))
     parser.add_argument('--sum', action = 'store_true', default = False, help = 'Compare to the threshold the SUM of the abundances in all the samples to be filtered.\n(default = not activated = filter per sample)')
     parser.add_argument('--only', action = 'store_true', default = False, help = "Remove ISUs/OTUs only in the samples where they do not reach the abundance threshold.\nAutomatic with '-meth sample' / Manual for methods 'minimum', 'choice' and 'replicates'.\n(default = remove OTU in all samples, or in all replicates of a group of replicates for method 'replicates').")
     parser.add_argument('--selection', action = 'store_true', default = False, help = "Return filtered data table containing only the samples selected using '-meth choice'.")
@@ -124,21 +124,17 @@ def write_output(filout, samples, all_samples, filtered, name_otus, select):
                 header.append(cols[i])
     elif name_otus:
         header.append(name_otus)
+    if select:
+        all_samples = sorted(sum(filtered[0][1][2], []), key = lambda x: int(x[0]))
     for i in sorted(all_samples, key = lambda x: int(x[0])):
-        # only add the selected samples if option '--selection' is used
-        if select:
-            if i in samples:
-                header.append('%s' % i[1])
-        else:
-            header.append('%s' % i[1])
+        header.append('%s' % i[1])
     # start writing
     o = open(filout, 'w')
     o.write('%s\n' % '\t'.join(header))
     for i in filtered:
         curFilt_1 = list(i[1][1])
         # only add data on the selected samples if option '--selection' is used
-        if select:
-            curFilt_1 = [curFilt_1[x[0]] for x in samples]
+        curFilt_1 = [curFilt_1[x[0]] for x in all_samples]
         if sum(curFilt_1):
             line = []
             if i[0]:
@@ -314,9 +310,15 @@ def filt_replicates(splt, samples, thresh, arguments):
         nGrps = int(len(repsList)*nGrps)
     across = arguments[3]
     only = arguments[4]
-    # nested list of replicates lists in terms of sample indices instead of samples names
-    idx_names_replicates = [[[r for r in samples if r[1] == rep][0] for rep in reps] for reps in repsList]
-    idx_replicates = [[[r[0] for r in samples if r[1] == rep][0] for rep in reps] for reps in repsList]
+    sample_repname = arguments[5]
+    if sample_repname:
+        # nested list of replicates lists in terms of sample indices instead of samples names
+        idx_names_replicates = [[[r for r in samples if r[1] == rep][0] for rep in reps[1:]] for reps in repsList]
+        idx_replicates = [[[r[0] for r in samples if r[1] == rep][0] for rep in reps[1:]] for reps in repsList]
+    else:
+        # nested list of replicates lists in terms of sample indices instead of samples names
+        idx_names_replicates = [[[r for r in samples if r[1] == rep][0] for rep in reps] for reps in repsList]
+        idx_replicates = [[[r[0] for r in samples if r[1] == rep][0] for rep in reps] for reps in repsList]
     # flatten the list of lists into one list
     flat_idx_replicates = sum(idx_replicates, [])
     # corresponding number of reads
@@ -374,7 +376,7 @@ def filt_replicates(splt, samples, thresh, arguments):
             # if '--only' option activated: the filter should apply only the selected samples
             if only:
                 # for each group and for each replicate in the group
-                for grpdx, grp in enumerate(grps_above_nReps):
+                for grpdx, grp in enumerate(groups_above_nReps):
                     for repdx in idx_replicates[grpdx]:
                         # update to zero the replicate that would not have enough replicates
                         if grp == 0:
@@ -410,6 +412,7 @@ def get_replicates(filin, code, samples, table):
     reps = []
     reps_in = []
     reps_out = []
+    reps_heads = []
     # get the table samples names
     sNames = [x[1] for x in samples]
     # parse the replicates file
@@ -420,6 +423,8 @@ def get_replicates(filin, code, samples, table):
             curReps = i.strip().split(',')
         elif '\t' in i:
             curReps = i.strip().split('\t')
+        else:
+            continue
         # collect the current replicates group in the main list
         reps.append(curReps)
         # collect the replicates of the file that are in/not in the table
@@ -429,35 +434,45 @@ def get_replicates(filin, code, samples, table):
                 reps_out.append(curRep)
             else:
                 newReps.append(curRep)
+        if reps_out:
+            curHead = curReps[0]
+            curTail = curReps[1:]
+            if sum([1 for x in curTail if curHead in x]) == len(curTail):
+                reps_heads.append(curReps)
         # put the group of replicates appearing in the table in secondary list
         if newReps:
             reps_in.append(newReps)
     # if there are replicate samples not in the table
+    sample_repname = 0
     if reps_out:
-        print 'Sample name(s) provided in the replicates file not present in the data table (%s):' % table
-        for rep in sorted(reps_out):
-            print ' -', rep
-        if len(reps_out) != len(list(set(reps_out))):
-            print 'and some samples appear in several groups of replicates:'
-            for rep in sorted(reps_out):
-                if reps_out.count(rep)>1:
-                    print ' *', rep
-        # ask the user to continue although some samples of the file are not in the table
-        # and if yes, return the secondary list of groups of replicates
-        userChoice = raw_input('Continue with the samples present in the table samples? <y/n>')
-        userChoice = userChoice.upper()
-        if userChoice.startswith('Y'):
-            print 'using %s groups of replicates' % len(reps_in)
-            for grpx, grp in enumerate(reps_in):
-                print grpx, ', '.join(grp)
-            time.sleep(3)
-            return reps_in
+        if sorted(reps_out) == sorted([x[0] for x in reps_heads]):
+            sample_repname = 1
+            return reps_heads, sample_repname
         else:
-            print 'Exiting'
-            sys.exit()
+            print 'Sample name(s) provided in the replicates file not present in the data table (%s):' % table
+            for rep in sorted(reps_out):
+                print ' -', rep
+            if len(reps_out) != len(list(set(reps_out))):
+                print 'and some samples appear in several groups of replicates:'
+                for rep in sorted(reps_out):
+                    if reps_out.count(rep)>1:
+                        print ' *', rep
+            # ask the user to continue although some samples of the file are not in the table
+            # and if yes, return the secondary list of groups of replicates
+            userChoice = raw_input('Continue with the samples present in the table samples? <y/n>')
+            userChoice = userChoice.upper()
+            if userChoice.startswith('Y'):
+                print 'using %s groups of replicates' % len(reps_in)
+                for grpx, grp in enumerate(reps_in):
+                    print grpx, ', '.join(grp)
+                time.sleep(3)
+                return reps_in, sample_repname
+            else:
+                print 'Exiting'
+                sys.exit()
     # return the main list of groups of replicates
     else:
-        return reps
+        return reps, sample_repname
 
 def filt_choice(splt, samples, thresh, arguments):
     """
@@ -713,9 +728,12 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
             # init the minimum number of replicates per group
             nReps = 2
             # replicates as a list of lists
-            replicates = get_replicates(mode[0], tableCode, all_samples, filin)
+            replicates, sample_repname = get_replicates(mode[0], tableCode, all_samples, filin)
             # numbers of replicates in each group of replicates
-            nReplicates = [len(x) for x in replicates]
+            if sample_repname:
+                nReplicates = [len(x)-1 for x in replicates]
+            else:
+                nReplicates = [len(x) for x in replicates]
             # max number of replicates in a group of replicates
             maxReps = max(nReplicates)
             # parse the other arguments
@@ -762,7 +780,7 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
             #   number of groups of replicates required with the above number of replicates per group
             #   across subsamples
             #   only on samples not the entire OTU
-            filtering = [filt_replicates, replicates, nReps, nGroups, across, only]
+            filtering = [filt_replicates, replicates, nReps, nGroups, across, only, sample_repname]
         else:
             print "Need file containing replicates information to run method 'replicates'"
             sys.exit()
@@ -789,8 +807,8 @@ def get_samples(filin, code, sep, regex):
                 # if the first line is supposed to be a header
                 if head_code:
                     # init samples as all samples
-                    all_samples = [(xdx, x) for xdx, x in enumerate(reads)]
-                    samples = [(xdx, x) for xdx, x in enumerate(reads)]
+                    all_samples = [(xdx, x.strip()) for xdx, x in enumerate(reads)]
+                    samples = [(xdx, x.strip()) for xdx, x in enumerate(reads)]
                     # refine samples according to user input
                     if regex[0]:
                         samples = [x for x in all_samples if x[0] in regex[0]]
@@ -803,7 +821,7 @@ def get_samples(filin, code, sep, regex):
                     all_samples = [(xdx, 'Sample#%s' % x) for xdx,x in enumerate(range(1, (len(split_line)-meta_code)))]
                     # only possible to refine samples according to indices passed by user
                     if regex[0]:
-                        samples = [x for x in all_samples if x[0] in regex[0]]
+                        samples = [x.strip() for x in all_samples if x[0] in regex[0]]
     return all_samples, samples
 
 def filter_table(filin, code, sep, regex, meth_mode, thresh, samples):
