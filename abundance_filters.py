@@ -69,7 +69,7 @@ def abundance_filters():
             if len(mode) == 2:
                 filout += '2reps_%sgrps' % (mode[1])
             else:
-                filout += '2reps_1grps' % (mode[1], mode[2])
+                filout += '2reps_1grps'
         if args['x']:
             filout += '_regex-%s' % '-'.join(args['x'])
         if across:
