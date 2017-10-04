@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import cProfile
-
 import subprocess
 from Bio import SeqIO
 import time
@@ -1047,5 +1046,5 @@ def write_header_table(filout, samples, all_samples, name_otus, select, merge, c
     return o, lineIdx, filoutPath
 
 
-cProfile.run('abundance_filters()')
-#abundance_filters()
+#cProfile.run('abundance_filters()')
+abundance_filters()
