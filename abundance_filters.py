@@ -99,136 +99,158 @@ def abundance_filters():
     # main
     tableCode = check_table(filin, sep, head, meta)
     all_samples, samples = get_samples(filin, tableCode, sep, regex)
-    meth_mode, samples, maxReps, max_nGrps = get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
-    #filtered, repData = filter_table(filin, tableCode, sep, regex, meth_mode, thresh, samples)
-    filtered = filter_table(filin, tableCode, sep, regex, meth_mode, thresh, samples)
-    write_output(filout, samples, all_samples, filtered, name_otus, select, merge)
-    write_stats(args, statout, filout, samples, all_samples, filtered, tableCode, select)
+    meth_mode, samples, maxReps, max_nGrps, subsamples, sample_repname, replicates = get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
+    oTable, lineIdx, filoutPath = write_header_table(filout, samples, all_samples, name_otus, select, merge, tableCode, subsamples, sample_repname, replicates)
+    oStats, statoutPath = write_header_stats(args, statout, filout)
+    stats, repData = filter_table(filin, tableCode, sep, regex, meth_mode, thresh, samples, all_samples, oTable, name_otus, select, merge, lineIdx, maxReps, max_nGrps)
+    write_stats(stats, oStats, samples, all_samples, select)
+    oTable.close()
+    oStats.close()
     print 'Outputs:'
-    print os.path.abspath(filout)
-    print os.path.abspath(statout)
+    print filoutPath
+    print statoutPath
     if meth_mode[0] == filt_replicates:
-        repData = get_repData(filtered, maxReps, max_nGrps)
         pdf = replicatesFigure(Rout, repData, samples)
         print os.path.abspath(Rout)
         print os.path.abspath(pdf)
     return 0
 
-def write_output(filout, samples, all_samples, filtered, name_otus, select, merge):
-    """
-    Write output table with filtered data
-    """
-    # reconstitute the header line
-    header = []
-    lenMeta = len(filtered[0][0])
-    cols = ['ID', 'Taxonomy']
-    if lenMeta:
-        for i in range(lenMeta):
-            if len(cols) == i:
-                header.append('\t')
-            else:
-                header.append(cols[i])
-    elif name_otus:
-        header.append(name_otus)
 
+def get_repData(repData, reads_in_replicates, maxReps, nGrps):
+    """
+    Collect numbers of OTUs that occur in each possible number of groups of sample replicates, and for each class of number of replicates per group
+    Useful for the make of the figure: see function replicatesFigure(). Hence, only active of method 'replicates' is used.
+    """
+    # from 2 replicates to the max number of replicates in a group
+    for rNum in range(2,maxReps+1):
+        n, n2 = get_number_presences(reads_in_replicates, rNum)
+        # init exact and cumulative nested dicts with current number of replicates per group as keys
+        if repData['Exact'].has_key(rNum) == False:
+            repData['Exact'][rNum] = {}
+            repData['Cumulative'][rNum] = {}
+        # for each number of groups if replicates
+        for gNum in range(1, int(nGrps+1)):
+            # init another nested dict level to 0
+            if repData['Exact'][rNum].has_key(gNum) == False:
+                repData['Exact'][rNum][gNum] = 0
+                repData['Cumulative'][rNum][gNum] = 0
+            # increment the dicts for OTUs present in the required number of groups and replicates per group
+            if n >= gNum:
+                repData['Cumulative'][rNum][gNum]+=1
+            if n2 == gNum:
+                repData['Exact'][rNum][gNum]+=1
+    return repData
+
+
+def get_stats(stats, filtered, samples, all_samples, select):
+    stats['otu_n'] += 1
+    filt_0 = sum(filtered[0])
     if select:
-        all_samples = sorted(sum(filtered[0][1][2], []), key = lambda x: int(x[0]))
-
-    ctrl = {}
-    lineIdx = []
-    for i in sorted(all_samples, key = lambda x: int(x[0])):
-        if merge:
-            if filtered[0][1].has_key(4):
-                samrepsnames = list(filtered[0][1][4])
-            else:
-                print 'The replicates method did not find sample generic name in the replicates file\nExiting'
-                sys.exit()
-            for repsams in samrepsnames:
-                newsam = repsams[0]
-                oldsams = repsams[1:]
-                if i[1] in oldsams and ctrl.has_key(newsam) == False:
-                    header.append(newsam)
-                    ctrl[newsam] = 1
-                    lineIdx.append([x[0] for x in all_samples if x[1] in oldsams])
-                    break
-        else:
-            header.append(i[1])
-    # start writing
-    o = open(filout, 'w')
-    o.write('%s\n' % '\t'.join(header))
-    for i in filtered:
-        curFilt_1 = list(i[1][1])
-        # only add data on the selected samples if option '--selection' is used
-        curFilt_1 = [curFilt_1[x[0]] for x in all_samples]
-        if sum(curFilt_1):
-            line = []
-            if i[0]:
-                line.append('\t'.join(i[0]))
-            elif name_otus:
-                line.append('%s%s' % (name_otus, i[-1]))
-            if merge:
-                outStr = [sum([curFilt_1[y] for y in x])/float(len(x)) for x in lineIdx]
-            else:
-                outStr = curFilt_1
-            line += map(str, outStr)
-            o.write('%s\n' % '\t'.join(line))
-    o.close()
-
-def write_stats(args, statout, filout, samples, all_samples, filtered, tableCode, select):
-    """
-    Stats file output (to be elaborated)
-    """
-    curTime = time.strftime("%D_%H:%M:%S", time.localtime())
-    o = open(statout, 'w')
-    o.write('# script: %s\n' % os.path.abspath(sys.argv[0]))
-    o.write('# date: %s\n' % curTime)
-    o.write('# input table: %s\n' % args['i'][0])
-    o.write('# output table: %s\n' % filout)
-    o.write('# abundance threshold: %s\n' % args['t'])
-    o.write('# method: %s\n' % args['meth'])
-    o.write('# mode: %s\n' % '\t'.join(args['mode']))
-    o.write('# across dataset: %s\n' % args['sum'])
-    if args['x']:
-        o.write('# regex to subsample: %s\n' % ', '.join(args['x']))
-    if args['meth'] in ['choice', 'replicates']:
-        if args['meth'] == 'choice':
-            o.write('# output table for chosen samples: %s\n' % args['selection'])
-        o.write('# filter only in chosen samples: %s\n' % args['only'])
-    if select:
-        otu_kept = [sum([x[1][1][sample[0]] for sample in samples]) for x in filtered if sum([x[1][1][sample[0]] for sample in samples])]
-        otu_removed = [sum(x[1][0]) for x in filtered if sum(x[1][0])] + [sum([x[1][1][sample[0]] for sample in all_samples if sample not in samples]) for x in filtered if sum([x[1][1][sample[0]] for sample in all_samples if sample in samples])]
+        # kept
+        filt_1 = sum([filtered[1][sample[0]] for sample in samples])
+        samFilt = [filtered[1][sample[0]] for sample in all_samples if sample in samples]
+        if sum(samFilt):
+            filt_0 += [filtered[1][sample[0]] for sample in all_samples if sample not in samples]
     else:
-        otu_kept = [sum(x[1][1]) for x in filtered if sum(x[1][1])]
-        otu_removed = [sum(x[1][0]) for x in filtered if sum(x[1][0])]
-    percent_otu = 100*(len(otu_kept)/float(len(filtered)))
+        # kept
+        filt_1 = sum(filtered[1])
+    # fill stats dictoionnary
+    if filt_1:
+        stats['otu_1'].append(filt_1)
+    if filt_0:
+        stats['otu_0'].append(filt_0)
+
+    for sample in sorted(all_samples, key=lambda x: int(x[0])):
+        sample_idx = sample[0]
+        sample_name = sample[1]
+        if select:
+            if sample in samples:
+                curKept = filtered[1][sample_idx]
+                curRemoved = filtered[0][sample_idx]
+            else:
+                curRemoved = filtered[0][sample_idx] + filtered[1][sample_idx]
+        else:
+            curKept = filtered[1][sample_idx]
+            curRemoved = filtered[0][sample_idx]
+        stats['s_reads_1'][sample_name] += curKept
+        stats['s_reads_0'][sample_name] += curRemoved
+        if curKept:
+            stats['s_otu_1'][sample_name] += 1
+        if curRemoved:
+            stats['s_otu_0'][sample_name] += 1
+    return stats
+
+
+def write_stats(stats, o, samples, all_samples, select):
+    otu_kept = stats['otu_1']
+    otu_removed = stats['otu_0']
+    otu_n = stats['otu_n']
+    percent_otu = 100*(len(otu_kept)/float(otu_n))
     o.write('Entries kept by filter:\t%s\t%4.2f\t%%\n' % (len(otu_kept), percent_otu))
-    o.write('Entries removed by filter:\t%s\t%4.2f\t%%\n' % (int(len(filtered)-len(otu_kept)), (100-percent_otu)))
+    o.write('Entries removed by filter:\t%s\t%4.2f\t%%\n' % (int(otu_n-len(otu_kept)), (100-percent_otu)))
     percent_reads = 100*(sum(otu_kept)/float(sum(otu_kept)+sum(otu_removed)))
     o.write('Reads kept by filter:\t%s\t%4.2f\t%%\n' % (sum(otu_kept), percent_reads))
     o.write('Reads removed by filter:\t%s\t%4.2f\t%%\n' % (sum(otu_removed), (100-percent_reads)))
     o.write('Sample index\tSample name\tOTUs kept\tOTUs removed\tReads kept\tReads removed\n')
+
+    s_reads_0 = stats['s_reads_0']
+    s_reads_1 = stats['s_reads_1']
+    s_otu_0 = stats['s_otu_0']
+    s_otu_1 = stats['s_otu_1']
     for sample in sorted(all_samples, key=lambda x: int(x[0])):
-        o.write('%s\t%s\t' % (sample[0], sample[1]))
-        sample_idx = sample[0]
-        if select:
-            cur_kept = [x[1][1][sample_idx] if sample in samples else 0 for x in filtered]
-            cur_removed = [x[1][0][sample_idx] for x in filtered] + [x[1][1][sample_idx] for x in filtered if sample not in samples]
-            kept = [otu for otudx, otu in enumerate(cur_kept) if otu]
-            removed = [otu for otudx, otu in enumerate(cur_removed) if cur_removed[otudx]]
-        else:
-            try:
-                cur_kept = [x[1][1][sample_idx] for x in filtered]
-            except IndexError:
-                print
-                print sample_idx, sample
-                print 'filtered'
-                print filtered
-                print sdkljn
-            cur_removed = [x[1][0][sample_idx] for x in filtered]
-            kept = [otu for otudx, otu in enumerate(cur_kept) if otu]
-            removed = [otu for otudx, otu in enumerate(cur_removed) if cur_removed[otudx]]
-        o.write('%s\t%s\t%s\t%s\n' % (len(kept), len(removed), sum(cur_kept), sum(cur_removed)))
+        o.write('%s\t%s\t%s\t%s\t%s\t%s\n' % (sample[0], sample[1], s_otu_1[sample[1]], s_otu_0[sample[1]], s_reads_1[sample[1]], s_reads_0[sample[1]]))
     o.close()
+
+
+def filter_table(filin, code, sep, regex, meth_mode, thresh, samples, all_samples, ot, name_otus, select, merge, lineIdx, maxReps, max_nGrps):
+    """
+    Main filtering function
+    Parses the input table to filter and return a list with for each line (e.g. OTU),
+    a tuple (line header, dict with 0/1 key for removed/kept per sample, OTU counter)
+    Return a dict on replicates filtering: stays empty if replicates-filtering not used
+    """
+    # filtering method and method-specific arguments (see function get_method())
+    curMethod = meth_mode[0]
+    arguments = meth_mode[1:]
+    # table format encoding (see function check_table())
+    head_code = code[0]
+    meta_code = code[1]
+    OTU = 0
+    repData = {'Exact': {}, 'Cumulative': {}}
+    stats = {
+        'otu_n': 0,
+        'otu_1': [],
+        'otu_0': [],
+        's_otu_1': {},
+        's_otu_0': {},
+        's_reads_1': {},
+        's_reads_0': {}}
+    for sample in all_samples:
+        stats['s_otu_1'][sample[1]] = 0
+        stats['s_otu_0'][sample[1]] = 0
+        stats['s_reads_1'][sample[1]] = 0
+        stats['s_reads_0'][sample[1]] = 0
+    # parse input OTU/ISU table
+    for lindx, line in enumerate(open(filin, 'rU')):
+        if lindx and lindx % 1000==0:
+            print '%s lines processed' % lindx
+        split_line = line.strip().split(sep)
+        if len(''.join(split_line)): # skip empty line
+            # line field that may correspond to count data or sample names
+            reads = split_line[meta_code:]
+            # line header (may contain OTU name / taxonomy / ...)
+            meta = [x.strip() for x in split_line[:meta_code]]
+            # if reads is count data
+            if lindx or lindx == 0 and head_code == 0:
+                # apply the selected filtering method with passed arguments as parameters
+                filtered_line, reads_in_replicates = curMethod(reads, samples, thresh, arguments)
+                OTU += 1
+                write_line(filtered_line, meta, OTU, ot, samples, all_samples, name_otus, merge, lineIdx)
+                stats = get_stats(stats, filtered_line, samples, all_samples, select)
+                if curMethod == filt_replicates:
+                    repData = get_repData(repData, reads_in_replicates, maxReps, max_nGrps)
+    return stats, repData
+
 
 def get_number_presences(presences_per_rep, rNum):
     n = 0
@@ -240,34 +262,6 @@ def get_number_presences(presences_per_rep, rNum):
                 n2+=1
     return n,n2
 
-
-def get_repData(otu_reads_replicates, maxRep, nGrps):
-    """
-    Collect numbers of OTUs that occur in each possible number of groups of sample replicates, and for each class of number of replicates per group
-    Useful for the make of the figure: see function replicatesFigure(). Hence, only active of method 'replicates' is used.
-    """
-    # init dict to be filled only for replicates-based filtering
-    repData = {'Exact': {}, 'Cumulative': {}}
-    for reads_replicates in otu_reads_replicates:
-        # from 2 replicates to the max number of replicates in a group
-        for rNum in range(2,maxRep+1):
-            n, n2 = get_number_presences(reads_replicates[1][3], rNum)
-            # init exact and cumulative nested dicts with current number of replicates per group as keys
-            if repData['Exact'].has_key(rNum) == False:
-                repData['Exact'][rNum] = {}
-                repData['Cumulative'][rNum] = {}
-            # for each number of groups if replicates
-            for gNum in range(1, int(nGrps+1)):
-                # init another nested dict level to 0
-                if repData['Exact'][rNum].has_key(gNum) == False:
-                    repData['Exact'][rNum][gNum] = 0
-                    repData['Cumulative'][rNum][gNum] = 0
-                # increment the dicts for OTUs present in the required number of groups and replicates per group
-                if n >= gNum:
-                    repData['Cumulative'][rNum][gNum]+=1
-                if n2 == gNum:
-                    repData['Exact'][rNum][gNum]+=1
-    return repData
 
 def replicatesFigure(Rout, repData, samples):
     """
@@ -325,7 +319,6 @@ def get_filt(n1, n2, only, intSplt, reg_idx, thresh):
         filt[0] = intSplt
         filt[1] = [0]*nLine
     return filt
-
 
 
 def filt_replicates(splt, samples, thresh, arguments):
@@ -429,14 +422,7 @@ def filt_replicates(splt, samples, thresh, arguments):
                 # update to zero the entire OTU
                 filt[0] = intSplt
                 filt[1] = [0]*len(splt)
-    # for this filtering also return:
-    # - the names of the replicates samples
-    filt[2] = idx_names_replicates
-    # - the list of lists of number of reads per replicate
-    filt[3] = reads_in_replicates
-    if sample_repname:
-        filt[4] = repsList
-    return filt
+    return filt, reads_in_replicates
 
 def get_replicates(filin, code, samples, table):
     """
@@ -552,8 +538,7 @@ def filt_choice(splt, samples, thresh, arguments):
         # if number of subsamples that have an abundance above the threshold is above the number of subsamples threshold
         filt = get_filt(n_vals_above_thresh, minSamples-1, only, intSplt, choice_idx, thresh)
     # for this filter also return the subsamples under a new key
-    filt[2] = subsamples
-    return filt
+    return filt, 0
 
 def filt_presence(splt, samples, thresh, arguments):
     """
@@ -569,7 +554,7 @@ def filt_presence(splt, samples, thresh, arguments):
     # transform entry abundance in binary presence/absence
     nSup = sum([1 for x in reg_intSplt if x])
     filt = get_filt(nSup, minSamples-1, only, intSplt, reg_idx, thresh)
-    return filt
+    return filt, 0
 
 def filt_minimum(splt, samples, thresh, arguments):
     """
@@ -595,7 +580,7 @@ def filt_minimum(splt, samples, thresh, arguments):
         # number of numbers above the thresholds
         sum_max_half_thresh = len(n_samples_above_thresh)
         filt = get_filt(sum_max_half_thresh, minSamples-1, only, intSplt, reg_idx, thresh)
-    return filt
+    return filt, 0
 
 def filt_dataset(splt, samples, thresh, arguments):
     """
@@ -608,7 +593,7 @@ def filt_dataset(splt, samples, thresh, arguments):
     # calculate the sum on the subsamples only
     spltSum = sum(reg_intSplt)
     filt = get_filt(spltSum, thresh, only, intSplt, reg_idx, thresh)
-    return filt
+    return filt, 0
 
 def filt_sample(splt, samples, thresh, arguments):
     """
@@ -618,7 +603,7 @@ def filt_sample(splt, samples, thresh, arguments):
     intSplt = get_intSplt(splt)
     reg_idx, reg_intSplt, minSamples = get_sample_info(intSplt, samples)
     filt = get_filt(1, 0, True, intSplt, reg_idx, thresh)
-    return filt
+    return filt, 0
 
 def get_intSplt(splt):
     try:
@@ -698,6 +683,9 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
     """
     maxReps = 0
     max_nGrps = 0
+    subsamples = []
+    replicates = []
+    sample_repname = 0
     # abundance-based filters
     if meth == 'simple':
         if across:
@@ -758,8 +746,9 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
                 print "Warning: mode value %s for method 'choice' not a numeric: interpreted as indices/regex" % mode[-1]
         # get the chosen subsamples based on indices/regex
         samples = get_subsamples(samples, mode)
+        subsamples = get_subsamples(samples, mode)
         # filtering function and its arguments: subsamples, percent value of the subsamples; across subsamples; only on samples not the entire OTU
-        filtering = [filt_choice, samples, val, across, only]
+        filtering = [filt_choice, subsamples, val, across, only]
     # replicates-based filtering
     elif meth == 'replicates':
         # necessitates at least one mode argument: the indices/regex for samples selection
@@ -777,7 +766,7 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
             # init the minimum number of replicates per group
             nReps = 2
             # replicates as a list of lists
-            replicates, sample_repname, idx_names_replicates, idx_replicates, flat_idx_replicates = get_replicates(mode[0], tableCode, all_samples, filin)
+            replicates, sample_repname, subsamples, idx_replicates, flat_idx_replicates = get_replicates(mode[0], tableCode, all_samples, filin)
             max_nGrps = len(replicates)
             # numbers of replicates in each group of replicates
             if sample_repname:
@@ -830,11 +819,11 @@ def get_method(meth, mode, across, only, tableCode, filin, samples, all_samples)
             #   number of groups of replicates required with the above number of replicates per group
             #   across subsamples
             #   only on samples not the entire OTU
-            filtering = [filt_replicates, replicates, nReps, nGroups, across, only, sample_repname, idx_names_replicates, idx_replicates, flat_idx_replicates]
+            filtering = [filt_replicates, replicates, nReps, nGroups, across, only, sample_repname, subsamples, idx_replicates, flat_idx_replicates]
         else:
             print "Need file containing replicates information to run method 'replicates'"
             sys.exit()
-    return filtering, samples, maxReps, max_nGrps
+    return filtering, samples, maxReps, max_nGrps, subsamples, sample_repname, replicates
 
 def get_samples(filin, code, sep, regex):
     """
@@ -874,42 +863,27 @@ def get_samples(filin, code, sep, regex):
                         samples = [x.strip() for x in all_samples if x[0] in regex[0]]
     return all_samples, samples
 
-def filter_table(filin, code, sep, regex, meth_mode, thresh, samples):
+
+
+def write_line(filtered_line, meta, OTU, ot, samples, all_samples, name_otus, merge, lineIdx):
     """
-    Main filtering function
-    Parses the input table to filter and return a list with for each line (e.g. OTU),
-    a tuple (line header, dict with 0/1 key for removed/kept per sample, OTU counter)
-    Return a dict on replicates filtering: stays empty if replicates-filtering not used
+    Write filtered line in output table
     """
-    # init dict to be filled only for replicates-based filtering
- #   repData = {'Exact': {}, 'Cumulative': {}}
-    # init the main list that will collect per-line filtering results
-    filtered_lines = []
-    # filtering method and method-specific arguments (see function get_method())
-    curMethod = meth_mode[0]
-    arguments = meth_mode[1:]
-    # table format encoding (see function check_table())
-    head_code = code[0]
-    meta_code = code[1]
-    OTU = 0
-    # parse input OTU/ISU table
-    for lindx, line in enumerate(open(filin, 'rU')):
-        if lindx and lindx % 1000==0:
-            print '%s lines processed' % lindx
-        split_line = line.strip().split(sep)
-        if len(''.join(split_line)): # skip empty line
-            # line field that may correspond to count data or sample names
-            reads = split_line[meta_code:]
-            # line header (may contain OTU name / taxonomy / ...)
-            meta = [x.strip() for x in split_line[:meta_code]]
-            # if reads is count data
-            if lindx or lindx == 0 and head_code == 0:
-                # apply the selected filtering method with passed arguments as parameters
-                filtered_line = curMethod(reads, samples, thresh, arguments)
-                OTU += 1
-                # fill the filtering results list
-                filtered_lines.append((meta, filtered_line, OTU))
-    return filtered_lines
+    curFilt_1 = list(filtered_line[1])
+    # only add data on the selected samples if option '--selection' is used
+    curFilt_1 = [curFilt_1[x[0]] for x in all_samples]
+    if sum(curFilt_1):
+        line = []
+        if meta:
+            line.append('\t'.join(meta))
+        elif name_otus:
+            line.append('%s%s' % (name_otus, OTU))
+        if merge:
+            outStr = [sum([curFilt_1[y] for y in x])/float(len(x)) for x in lineIdx]
+        else:
+            outStr = curFilt_1
+        line += map(str, outStr)
+        ot.write('%s\n' % '\t'.join(line))
 
 
 def check_table(filin, sep, head, meta):
@@ -1001,5 +975,77 @@ def get_samples_indices(reg):
             regex[1].append(r)
     return regex
 
-#cProfile.run('abundance_filters()')
-abundance_filters()
+def write_header_stats(args, statout, filout):
+    """
+    Stats file output (to be elaborated)
+    """
+    curTime = time.strftime("%D_%H:%M:%S", time.localtime())
+    statoutPath = os.path.abspath(statout)
+    o = open(statoutPath, 'w')
+    o.write('# script: %s\n' % os.path.abspath(sys.argv[0]))
+    o.write('# date: %s\n' % curTime)
+    o.write('# input table: %s\n' % args['i'][0])
+    o.write('# output table: %s\n' % filout)
+    o.write('# abundance threshold: %s\n' % args['t'])
+    o.write('# method: %s\n' % args['meth'])
+    o.write('# mode: %s\n' % '\t'.join(args['mode']))
+    o.write('# across dataset: %s\n' % args['sum'])
+    if args['x']:
+        o.write('# regex to subsample: %s\n' % ', '.join(args['x']))
+    if args['meth'] in ['choice', 'replicates']:
+        if args['meth'] == 'choice':
+            o.write('# output table for chosen samples: %s\n' % args['selection'])
+        o.write('# filter only in chosen samples: %s\n' % args['only'])
+    return o, statoutPath
+
+
+def write_header_table(filout, samples, all_samples, name_otus, select, merge, code, subsamples, sample_repname, replicates):
+    """
+    Write output table with header
+    """
+    # reconstitute the header line
+    header = []
+    lenMeta = code[1]
+    cols = ['ID', 'Taxonomy']
+    if lenMeta:
+        for i in range(lenMeta):
+            if len(cols) == i:
+                header.append('\t')
+            else:
+                header.append(cols[i])
+    elif name_otus:
+        header.append(name_otus)
+    if select:
+        try:
+            all_samples = sorted(sum(subsamples, []), key = lambda x: int(x[0]))
+        except TypeError:
+            all_samples = sorted(subsamples, key = lambda x: int(x[0]))
+    ctrl = {}
+    lineIdx = []
+    for i in sorted(all_samples, key = lambda x: int(x[0])):
+        if merge:
+            if sample_repname:
+                samrepsnames = list(replicates)
+            else:
+                print 'The replicates method did not find sample generic name in the replicates file\nExiting'
+                sys.exit()
+            for repsams in samrepsnames:
+                newsam = repsams[0]
+                oldsams = repsams[1:]
+                if i[1] in oldsams and ctrl.has_key(newsam) == False:
+                    header.append(newsam)
+                    ctrl[newsam] = 1
+                    lineIdx.append([x[0] for x in all_samples if x[1] in oldsams])
+                    break
+        else:
+            header.append(i[1])
+    # start writing
+
+    filoutPath = os.path.abspath(filout)
+    o = open(filoutPath, 'w')
+    o.write('%s\n' % '\t'.join(header))
+    return o, lineIdx, filoutPath
+
+
+cProfile.run('abundance_filters()')
+#abundance_filters()
